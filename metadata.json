@@ -1,0 +1,6 @@
+{
+  "name": "Luau Editor",
+  "description": "A powerful mobile code editor combining QuickEdit simplicity with VS Code workspace aesthetics, featuring local file management, tabbed workspace, and syntax highlighting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
