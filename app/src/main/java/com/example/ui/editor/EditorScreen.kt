@@ -93,6 +93,7 @@ fun EditorScreen(
 
     var showCreateFileDialog by remember { mutableStateOf(false) }
     var newFileName by remember { mutableStateOf("") }
+    var selectedTemplate by remember { mutableStateOf("Blank") }
 
     val activeFile = files.find { it.id == activeFileId }
     val openFilesList = files.filter { it.id in openFileIds }
@@ -991,6 +992,45 @@ fun EditorScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    
+                    // Framework options
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Framework Template",
+                            style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = activeTheme.textColor)
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
+                            listOf("Blank", "Module", "Client Script", "Server Script").forEach { templateName ->
+                                val active = selectedTemplate == templateName
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            if (active) activeTheme.caretColor.copy(alpha = 0.25f) else Color.Transparent,
+                                            shape = RoundedCornerShape(4.dp)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (active) activeTheme.caretColor else Color(0x33858585),
+                                            shape = RoundedCornerShape(4.dp)
+                                        )
+                                        .clickable { selectedTemplate = templateName }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = templateName,
+                                        style = TextStyle(
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 9.sp,
+                                            color = if (active) activeTheme.textColor else activeTheme.textColor.copy(alpha = 0.5f)
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     Card(
                         colors = CardDefaults.cardColors(containerColor = activeTheme.backgroundColor),
@@ -1028,8 +1068,9 @@ fun EditorScreen(
                         Button(
                             onClick = {
                                 if (newFileName.isNotBlank()) {
-                                    viewModel.createNewFile(newFileName, "luau")
+                                    viewModel.createNewFile(newFileName, "luau", selectedTemplate)
                                     newFileName = ""
+                                    selectedTemplate = "Blank"
                                     showCreateFileDialog = false
                                 }
                             },
@@ -2429,6 +2470,34 @@ fun ConsoleTabContent(
 }
 
 @Composable
+fun FileBlock(name: String, activeTheme: CodeTheme) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .padding(start = 24.dp, top = 2.dp, bottom = 2.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .clickable { /* TODO: Implement open file action */ }
+            .padding(4.dp)
+    ) {
+        Icon(imageVector = Icons.Default.InsertDriveFile, contentDescription = null, tint = activeTheme.textColor.copy(alpha=0.5f), modifier = Modifier.size(12.dp))
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(name, style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = activeTheme.textColor.copy(alpha=0.6f)))
+    }
+}
+
+@Composable
+fun FolderBlock(name: String, activeTheme: CodeTheme, children: @Composable () -> Unit) {
+    Column(modifier = Modifier.padding(start = 16.dp, top = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(imageVector = Icons.Default.Folder, contentDescription = null, tint = activeTheme.caretColor.copy(alpha=0.7f), modifier = Modifier.size(14.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(name, style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = activeTheme.textColor.copy(alpha=0.8f), fontWeight = FontWeight.Bold))
+        }
+        children()
+    }
+}
+
+@Composable
 fun BundleTabContent(
     viewModel: EditorViewModel,
     activeTheme: CodeTheme
@@ -2446,46 +2515,76 @@ fun BundleTabContent(
         modifier = Modifier
             .fillMaxSize()
             .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = "Entry Script Target",
-                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = activeTheme.textColor.copy(alpha = 0.5f))
-            )
-            BasicTextField(
-                value = entryFile,
-                onValueChange = { entryFile = it },
-                textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = Color.White),
-                cursorBrush = SolidColor(activeTheme.caretColor),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(28.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xFF0F1419))
-                    .border(1.dp, Color(0xFF2B2B2B), shape = RoundedCornerShape(4.dp))
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-            )
-        }
+        Text(
+            text = "TREEHUB PACKAGING PIPELINE",
+            style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = activeTheme.caretColor, fontWeight = FontWeight.Bold)
+        )
+        Text(
+            text = "Ghost Bot Panel visualizes bundle structure. Set your entry point below.",
+            style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = activeTheme.textColor.copy(alpha = 0.6f))
+        )
 
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = "Output Distribution file",
-                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = activeTheme.textColor.copy(alpha = 0.5f))
-            )
-            BasicTextField(
-                value = outputFile,
-                onValueChange = { outputFile = it },
-                textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = Color.White),
-                cursorBrush = SolidColor(activeTheme.caretColor),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(28.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xFF0F1419))
-                    .border(1.dp, Color(0xFF2B2B2B), shape = RoundedCornerShape(4.dp))
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-            )
+        Card(
+            colors = CardDefaults.cardColors(containerColor = activeTheme.backgroundColor),
+            border = BorderStroke(1.dp, Color(0xFF2B2B2B)),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.Folder, contentDescription = null, tint = activeTheme.caretColor, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Workspace Root", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = activeTheme.textColor, fontWeight = FontWeight.Bold))
+                }
+                
+                // Entry Config
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp)) {
+                    Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    BasicTextField(
+                        value = entryFile,
+                        onValueChange = { entryFile = it },
+                        textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = activeTheme.textColor),
+                        cursorBrush = SolidColor(activeTheme.caretColor),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF0F1419), RoundedCornerShape(4.dp))
+                            .border(1.dp, Color(0xFF2B2B2B), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        decorationBox = { innerTextField ->
+                            if (entryFile.isEmpty()) Text("Entry Config (e.g. main.luau)", color = Color.Gray, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                            innerTextField()
+                        }
+                    )
+                }
+
+                // Output Config
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp)) {
+                    Icon(imageVector = Icons.Default.Archive, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    BasicTextField(
+                        value = outputFile,
+                        onValueChange = { outputFile = it },
+                        textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = activeTheme.textColor),
+                        cursorBrush = SolidColor(activeTheme.caretColor),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF0F1419), RoundedCornerShape(4.dp))
+                            .border(1.dp, Color(0xFF2B2B2B), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        decorationBox = { innerTextField ->
+                            if (outputFile.isEmpty()) Text("Output Config (e.g. bundle.lua)", color = Color.Gray, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                            innerTextField()
+                        }
+                    )
+                }
+
+                FolderBlock(name = "Utils", activeTheme = activeTheme) {
+                    FileBlock(name = "Until.luau", activeTheme = activeTheme)
+                }
+            }
         }
 
         if (isBundling) {
@@ -2856,7 +2955,7 @@ fun androidx.compose.foundation.layout.BoxScope.DynamicIslandOverlay(
         label = "DynamicIslandWidth"
     )
     val islandAlpha by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (isLandscape && errorsCount == 0 && !isBundling) 0f else 1f,
+        targetValue = if (errorsCount == 0 && !isBundling) 0f else 1f,
         label = "DynamicIslandAlpha"
     )
     
@@ -2868,7 +2967,7 @@ fun androidx.compose.foundation.layout.BoxScope.DynamicIslandOverlay(
             .height(height)
             .graphicsLayer { alpha = islandAlpha }
             .clip(RoundedCornerShape(22.dp))
-            .clickable { expanded = !expanded }
+            .clickable(enabled = islandAlpha > 0.1f) { expanded = !expanded }
             // Thick dark glassmorphism
             .background(Color(0xE6090A0C))
             .border(

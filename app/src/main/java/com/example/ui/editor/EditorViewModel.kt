@@ -269,8 +269,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             // Deactivate Settings Tab visual content
             _isSettingsActive.value = false
 
-            // Save active file automatically if autosave is enabled
-            if (_autoSave.value && _isModified.value) {
+            // Save active file automatically if modified, to prevent data loss on tab switch
+            if (_isModified.value) {
                 saveActiveFile()
             }
 
@@ -322,7 +322,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun createNewFile(name: String, language: String = "luau") {
+    fun createNewFile(name: String, language: String = "luau", template: String = "Module") {
         viewModelScope.launch {
             // Force file naming rules for Luau only
             val cleanedName = name.replace(" ", "_").trim()
@@ -333,7 +333,24 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             }
 
             val moduleName = checkedName.substringBeforeLast(".")
-            val content = """--!strict
+            val content = when (template) {
+                "Blank" -> "--!strict\n-- $checkedName\n"
+                "Client Script" -> """--!strict
+-- $checkedName: Client side Roblox script
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+print("Client initialization sequence triggered for: " .. LocalPlayer.Name)
+"""
+                "Server Script" -> """--!strict
+-- $checkedName: Server side Roblox script
+local Players = game:GetService("Players")
+
+Players.PlayerAdded:Connect(function(player)
+    print("Player joined the game: " .. player.Name)
+end)
+"""
+                else -> """--!strict
 -- Module $checkedName: Customized Luau workspace module
 local $moduleName = {}
 $moduleName.__index = $moduleName
@@ -358,6 +375,7 @@ end
 
 return $moduleName
 """
+            }
 
             if (_useExternalStorage.value) {
                 try {
