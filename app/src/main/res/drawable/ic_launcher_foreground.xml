@@ -1,8 +1,56 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:width="66dp"
-        android:height="66dp"
-        android:drawable="@drawable/code_editor_icon_1779375293150"
-        android:gravity="center" />
-</layer-list>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <group
+        android:translateX="20"
+        android:translateY="20"
+        android:scaleX="0.63"
+        android:scaleY="0.63">
+        
+        <!-- Blue Base (QuickEdit-like paper) -->
+        <path
+            android:fillColor="#007ACC"
+            android:pathData="M 10 16 L 36 16 L 36 92 L 10 92 Z"/>
+
+        <!-- Violet ribbon folding (VS Code style) -->
+        <path
+            android:fillColor="#0066AA"
+            android:pathData="M 36 16 L 68 8 L 68 92 L 36 92 Z" />
+
+        <!-- Lighter Blue overlay ribbon -->
+        <path
+            android:fillColor="#228CEB"
+            android:pathData="M 14 36 L 94 12 L 94 72 L 14 96 Z" />
+
+        <!-- Accent ribbon -->
+        <path
+            android:fillColor="#3AA0F3"
+            android:pathData="M 94 12 L 80 40 L 94 72 Z" />
+
+        <!-- White Code Brackets </> -->
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M 40 40 L 25 54 L 40 68" />
+        
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M 52 74 L 62 34" />
+            
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M 74 40 L 89 54 L 74 68" />
+    </group>
+</vector>

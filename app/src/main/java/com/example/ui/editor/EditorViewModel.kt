@@ -81,6 +81,12 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private val _showMinimap = MutableStateFlow(true)
     val showMinimap: StateFlow<Boolean> = _showMinimap.asStateFlow()
 
+    private val _customBackgroundUri = MutableStateFlow<String?>(null)
+    val customBackgroundUri: StateFlow<String?> = _customBackgroundUri.asStateFlow()
+
+    private val _orientationMode = MutableStateFlow(0)
+    val orientationMode: StateFlow<Int> = _orientationMode.asStateFlow()
+
     private val _showLineNumbers = MutableStateFlow(true)
     val showLineNumbers: StateFlow<Boolean> = _showLineNumbers.asStateFlow()
 
@@ -233,6 +239,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     // Settings actions
     fun setAutoSave(value: Boolean) { _autoSave.value = value }
     fun setShowMinimap(value: Boolean) { _showMinimap.value = value }
+    fun setCustomBackgroundUri(value: String?) { _customBackgroundUri.value = value }
+    fun setOrientationMode(value: Int) { _orientationMode.value = value }
     fun setShowLineNumbers(value: Boolean) { _showLineNumbers.value = value }
     fun setFontFamily(value: String) { _fontFamily.value = value }
     fun setCursorStyle(value: String) { _cursorStyle.value = value }

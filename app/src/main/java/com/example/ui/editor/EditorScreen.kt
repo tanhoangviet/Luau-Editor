@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,6 +85,11 @@ fun EditorScreen(
     val luauOptimization by viewModel.luauOptimization.collectAsState()
     val cursorBlinkingSelection by viewModel.cursorBlinking.collectAsState()
     val tabSizeSelection by viewModel.tabSize.collectAsState()
+    
+    val orientationMode by viewModel.orientationMode.collectAsState()
+    val customBackgroundUri by viewModel.customBackgroundUri.collectAsState()
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE || orientationMode == 2
 
     var showCreateFileDialog by remember { mutableStateOf(false) }
     var newFileName by remember { mutableStateOf("") }
@@ -95,14 +101,32 @@ fun EditorScreen(
     val mainBgColor = activeTheme.backgroundColor
     val textColor = activeTheme.textColor
 
-    val currentThemeBg = if (isBetaInterface) Color(0xEC090B0F) else mainBgColor
-    val currentSidebarBg = if (isBetaInterface) Color(0xD2050608) else activeTheme.sidebarBgColor
+    val currentThemeBg = if (isBetaInterface) Color(0xEC090B0F).copy(alpha = 0.5f) else mainBgColor.copy(alpha = 0.7f)
+    val currentSidebarBg = if (isBetaInterface) Color(0xD2050608).copy(alpha = 0.6f) else activeTheme.sidebarBgColor.copy(alpha = 0.8f)
 
     Surface(
         modifier = modifier.fillMaxSize(),
         color = if (isBetaInterface) Color(0xFF060709) else mainBgColor
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
+            if (customBackgroundUri != null) {
+                coil.compose.AsyncImage(
+                    model = customBackgroundUri,
+                    contentDescription = "Custom Editor Background",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    alpha = 0.5f
+                )
+            } else {
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.editor_background_1779413593535),
+                    contentDescription = "Default Editor Background",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    alpha = 0.5f // subtle blending
+                )
+            }
+            
             if (isBetaInterface) {
                 // Glass-liquid radiant backend flows
                 androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
@@ -199,6 +223,21 @@ fun EditorScreen(
                     )
 
                     ActivityIconButton(
+                        icon = Icons.Default.Extension,
+                        contentDescription = "Plugins",
+                        isActive = activeSidebarTab == "plugins" && isSidebarExpanded && !isSettingsActive,
+                        theme = activeTheme,
+                        onClick = {
+                            viewModel.setSettingsActive(false)
+                            if (activeSidebarTab == "plugins" && isSidebarExpanded) {
+                                viewModel.setSidebarExpanded(false)
+                            } else {
+                                viewModel.setSidebarTab("plugins")
+                            }
+                        }
+                    )
+
+                    ActivityIconButton(
                         icon = Icons.Default.Settings,
                         contentDescription = "Open Settings Tab",
                         isActive = isSettingsActive,
@@ -241,7 +280,7 @@ fun EditorScreen(
 
                 // 2. SIDEBAR PANEL (Collapsible Dynamic Controls Drawer)
                 AnimatedVisibility(
-                    visible = isSidebarExpanded && !isSettingsActive,
+                    visible = isSidebarExpanded && !isSettingsActive && !isLandscape,
                     enter = slideInHorizontally(animationSpec = spring()) { -it } + fadeIn(),
                     exit = slideOutHorizontally(animationSpec = spring()) { -it } + fadeOut()
                 ) {
@@ -266,6 +305,7 @@ fun EditorScreen(
                                         "search" -> "FIND & REPLACE"
                                         "console" -> "OUTPUT VM TERMINAL"
                                         "bundle" -> "DARKLUA BUNDLER"
+                                        "plugins" -> "PLUGINS CATALOG"
                                         else -> "SIDEBAR"
                                     },
                                     style = TextStyle(
@@ -322,6 +362,9 @@ fun EditorScreen(
                                         viewModel = viewModel,
                                         activeTheme = activeTheme
                                     )
+                                    "plugins" -> PluginsTabContent(
+                                        activeTheme = activeTheme
+                                    )
                                 }
                             }
                         }
@@ -332,7 +375,7 @@ fun EditorScreen(
                 }
 
                 // 3. EDITOR WORKSPACE PANEL
-                Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                Column(modifier = Modifier.weight(1f).fillMaxHeight().animateContentSize()) {
                     
                     // VS-Code TabBar containing files AND the special Settings tab
                     LazyRow(
@@ -700,6 +743,7 @@ fun EditorScreen(
                                         }
                                     }
                                 }
+                                }
                                 
                                 // Floating Glassmorphic Alert Tooltip for real-time error detection
                                 if (errorsList.isNotEmpty()) {
@@ -737,7 +781,7 @@ fun EditorScreen(
                                                 }
                                                 Column(modifier = Modifier.weight(1f)) {
                                                     Text(
-                                                        text = "Line ${firstError.line}: Check Lỗi Sai Tooltip",
+                                                        text = "Line ${firstError.line}: Syntax Error",
                                                         style = TextStyle(
                                                             fontFamily = FontFamily.Monospace,
                                                             fontWeight = FontWeight.Bold,
@@ -759,7 +803,6 @@ fun EditorScreen(
                                     }
                                 }
                             }
-                        }
                     } else {
                         // File select tips placeholder state
                             Column(
@@ -904,7 +947,8 @@ fun EditorScreen(
                 DynamicIslandOverlay(
                     errorsCount = errorsList.size,
                     isBundling = isBundling,
-                    bundleSuccess = bundleSuccess
+                    bundleSuccess = bundleSuccess,
+                    isLandscape = isLandscape
                 )
             }
         }
@@ -1023,7 +1067,19 @@ fun SettingsDashboard(
     val hasStoragePermission by viewModel.hasStoragePermission.collectAsState()
     val enabledPlugins by viewModel.enabledPlugins.collectAsState()
     val pluginLogs by viewModel.pluginLogs.collectAsState()
+    val orientationMode by viewModel.orientationMode.collectAsState()
+    val customBackgroundUri by viewModel.customBackgroundUri.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    
+    val backgroundPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.setCustomBackgroundUri(uri.toString())
+        }
+    }
 
     val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
@@ -1297,6 +1353,112 @@ fun SettingsDashboard(
                                 uncheckedTrackColor = Color.DarkGray
                             )
                         )
+                    }
+                }
+            }
+        }
+
+        // LUAU COMPILER AND PRECISE SCHEDULER ENGINE SETTINGS
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = activeTheme.sidebarBgColor),
+                border = BorderStroke(1.dp, Color(0xFF2B2B2B)),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        text = "VISUAL LAYOUT & BACKGROUND",
+                        style = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = activeTheme.caretColor
+                        )
+                    )
+
+                    // Orientation configuration
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Workspace Screen Orientation",
+                            style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = activeTheme.textColor)
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("Auto" to 0, "Portrait" to 1, "Landscape" to 2).forEach { (label, value) ->
+                                val active = orientationMode == value
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            if (active) activeTheme.caretColor.copy(alpha = 0.25f) else Color.Transparent,
+                                            shape = RoundedCornerShape(4.dp)
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (active) activeTheme.caretColor else Color(0x33858585),
+                                            shape = RoundedCornerShape(4.dp)
+                                        )
+                                        .clickable { viewModel.setOrientationMode(value) }
+                                        .padding(horizontal = 8.dp, vertical = 5.dp)
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = TextStyle(
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 9.sp,
+                                            color = if (active) activeTheme.textColor else activeTheme.textColor.copy(alpha = 0.5f)
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = Color(0xFF2B2B2B))
+                    
+                    // Custom Background Picker
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Custom Image Background",
+                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = activeTheme.textColor)
+                            )
+                            Text(
+                                text = "Select from memory to replace default pure color.",
+                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = activeTheme.textColor.copy(alpha = 0.5f))
+                            )
+                        }
+                        
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (customBackgroundUri != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .border(1.dp, Color(0xFFEF4444), RoundedCornerShape(4.dp))
+                                        .clickable { viewModel.setCustomBackgroundUri(null) }
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Text(
+                                        text = "Reset",
+                                        style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = Color(0xFFEF4444))
+                                    )
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .background(activeTheme.caretColor.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
+                                    .border(1.dp, activeTheme.caretColor, RoundedCornerShape(4.dp))
+                                    .clickable { backgroundPickerLauncher.launch("image/*") }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = "Select",
+                                    style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = activeTheme.textColor)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -2091,7 +2253,7 @@ fun ExplorerTabContent(
         }
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp).animateContentSize(),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             items(files, key = { it.id }) { file ->
@@ -2677,20 +2839,25 @@ fun QuickColorPickerBar(
 fun androidx.compose.foundation.layout.BoxScope.DynamicIslandOverlay(
     errorsCount: Int,
     isBundling: Boolean,
-    bundleSuccess: Boolean?
+    bundleSuccess: Boolean?,
+    isLandscape: Boolean = false
 ) {
     var expanded by remember { mutableStateOf(false) }
     
     // Dynamic size animation based on state
     val height by androidx.compose.animation.core.animateDpAsState(
-        targetValue = if (expanded) 85.dp else 42.dp,
+        targetValue = if (isLandscape) 32.dp else if (expanded) 85.dp else 42.dp,
         animationSpec = androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessLow),
         label = "DynamicIslandHeight"
     )
     val width by androidx.compose.animation.core.animateDpAsState(
-        targetValue = if (expanded) 320.dp else 240.dp,
+        targetValue = if (isLandscape) 140.dp else if (expanded) 320.dp else 240.dp,
         animationSpec = androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessLow),
         label = "DynamicIslandWidth"
+    )
+    val islandAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isLandscape && errorsCount == 0 && !isBundling) 0f else 1f,
+        label = "DynamicIslandAlpha"
     )
     
     Box(
@@ -2699,6 +2866,7 @@ fun androidx.compose.foundation.layout.BoxScope.DynamicIslandOverlay(
             .align(Alignment.TopCenter)
             .width(width)
             .height(height)
+            .graphicsLayer { alpha = islandAlpha }
             .clip(RoundedCornerShape(22.dp))
             .clickable { expanded = !expanded }
             // Thick dark glassmorphism
@@ -2760,7 +2928,7 @@ fun androidx.compose.foundation.layout.BoxScope.DynamicIslandOverlay(
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
-                        if (expanded) {
+                        if (expanded && !isLandscape) {
                             Text(
                                 text = "Integrating bytecode nodes safely",
                                 color = Color.Gray,
@@ -2789,7 +2957,7 @@ fun androidx.compose.foundation.layout.BoxScope.DynamicIslandOverlay(
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
-                        if (expanded) {
+                        if (expanded && !isLandscape) {
                             Text(
                                 text = "Tap tooltip check lỗi to fix mistakes",
                                 color = Color.Gray,
@@ -2818,7 +2986,7 @@ fun androidx.compose.foundation.layout.BoxScope.DynamicIslandOverlay(
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
-                        if (expanded) {
+                        if (expanded && !isLandscape) {
                             Text(
                                 text = "Treehub packaging pipeline is healthy",
                                 color = Color.Gray,
@@ -2829,6 +2997,90 @@ fun androidx.compose.foundation.layout.BoxScope.DynamicIslandOverlay(
                     }
                 }
                 Text("🟢", fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+fun PluginsTabContent(
+    activeTheme: CodeTheme
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(12.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        PluginCard(
+            title = "Luau Formatter",
+            description = "Auto-format code to comply with Roblox standards.",
+            installed = true,
+            activeTheme = activeTheme
+        )
+        PluginCard(
+            title = "Snippet Helper",
+            description = "Quick autocomplete symbols & snippets.",
+            installed = true,
+            activeTheme = activeTheme
+        )
+        PluginCard(
+            title = "Color Picker",
+            description = "Visual color picker for Color3 and hex codes.",
+            installed = false,
+            activeTheme = activeTheme
+        )
+    }
+}
+
+@Composable
+fun PluginCard(
+    title: String,
+    description: String,
+    installed: Boolean,
+    activeTheme: CodeTheme
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = activeTheme.sidebarBgColor),
+        border = BorderStroke(1.dp, Color(0xFF2B2B2B)),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = activeTheme.textColor)
+                )
+                if (installed) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Installed",
+                        tint = Color(0xFF10B981),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = description,
+                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = activeTheme.textColor.copy(alpha = 0.6f))
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Text(
+                    text = if (installed) "Uninstall" else "Install",
+                    style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = if (installed) Color(0xFFEF4444) else activeTheme.caretColor, fontWeight = FontWeight.Bold),
+                    modifier = Modifier.clickable { /* Toggle state */ }
+                )
             }
         }
     }
