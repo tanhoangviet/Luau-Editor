@@ -28,6 +28,21 @@ class CodeSyntaxHighlightTransformation(
     }
 }
 
+// Pre-compiled regex instances for maximum rendering efficiency and lag-free typing in the Compose editor
+private val commentBlockRegex = Regex("--\\[\\[[\\s\\S]*?\\]\\]")
+private val commentSingleLineRegex = Regex("--.*")
+
+private val stringDoubleQuoteRegex = Regex("\"([^\"\\\\]|\\\\.)*\"")
+private val stringSingleQuoteRegex = Regex("'([^'\\\\]|\\\\.)*'")
+private val stringDoubleBracketRegex = Regex("\\[\\[[\\s\\S]*?\\]\\]")
+
+private val keywordsRegex = Regex("\\b(and|break|do|else|elseif|end|false|for|function|if|in|local|nil|not|or|repeat|return|then|true|until|while|export|type|typeof|declare|self)\\b")
+private val builtinsRegex = Regex("\\b(game|workspace|script|Instance|Vector3|UDim2|Color3|task|math|table|string|coroutine|debug|os|utf8|require|print|warn|error|pcall|xpcall|next|pairs|ipairs|tonumber|tostring|Enum|RaycastParams|BasePart|Humanoid|Player)\\b")
+private val typesRegex = Regex("\\b(number|boolean|string|thread|table|any|void|unknown|never|ControllerType|CharacterState|RaycastInfo)\\b")
+
+private val functionRegex = Regex("\\b([a-zA-Z_]\\w*)(?=\\s*\\()")
+private val numberRegex = Regex("\\b\\d+(\\.\\d+)?\\b")
+
 fun highlightCode(text: String, language: String, theme: CodeTheme): AnnotatedString {
     val builder = AnnotatedString.Builder(text)
     val length = text.length
@@ -37,11 +52,7 @@ fun highlightCode(text: String, language: String, theme: CodeTheme): AnnotatedSt
     val styled = BooleanArray(length)
 
     // 1. Luau Block Comments & Single line comments
-    val commentRegexes = listOf(
-        Regex("--\\[\\[[\\s\\S]*?\\]\\]"), // Block comment --[[ ... ]]
-        Regex("--.*")                      // Single line comment -- ...
-    )
-
+    val commentRegexes = listOf(commentBlockRegex, commentSingleLineRegex)
     for (regex in commentRegexes) {
         regex.findAll(text).forEach { match ->
             val start = match.range.first
@@ -54,12 +65,7 @@ fun highlightCode(text: String, language: String, theme: CodeTheme): AnnotatedSt
     }
 
     // 2. Luau Strings: single quotes, double quotes, and long bracket block strings [[ ... ]]
-    val stringRegexes = listOf(
-        Regex("\"([^\"\\\\]|\\\\.)*\""),
-        Regex("'([^'\\\\]|\\\\.)*'"),
-        Regex("\\[\\[[\\s\\S]*?\\]\\]")
-    )
-
+    val stringRegexes = listOf(stringDoubleQuoteRegex, stringSingleQuoteRegex, stringDoubleBracketRegex)
     for (regex in stringRegexes) {
         regex.findAll(text).forEach { match ->
             val start = match.range.first
@@ -72,14 +78,7 @@ fun highlightCode(text: String, language: String, theme: CodeTheme): AnnotatedSt
     }
 
     // 3. Luau Keywords (luau syntax structure)
-    val keywords = listOf(
-        "and", "break", "do", "else", "elseif", "end", "false", "for", "function", 
-        "if", "in", "local", "nil", "not", "or", "repeat", "return", "then", "true", 
-        "until", "while", "export", "type", "typeof", "declare", "self"
-    )
-
-    val keywordPattern = "\\b(${keywords.joinToString("|")})\\b"
-    Regex(keywordPattern).findAll(text).forEach { match ->
+    keywordsRegex.findAll(text).forEach { match ->
         val start = match.range.first
         val end = (match.range.last + 1).coerceAtMost(length)
         if (start < end && !styled.sliceArray(start until end).any { it }) {
@@ -89,15 +88,7 @@ fun highlightCode(text: String, language: String, theme: CodeTheme): AnnotatedSt
     }
 
     // 4. Luau Builtins / Library calls (Roblox & general Lua API context)
-    val builtins = listOf(
-        "game", "workspace", "script", "Instance", "Vector3", "UDim2", "Color3", 
-        "task", "math", "table", "string", "coroutine", "debug", "os", "utf8", 
-        "require", "print", "warn", "error", "pcall", "xpcall", "next", "pairs", 
-        "ipairs", "tonumber", "tostring", "Enum", "RaycastParams", "BasePart", "Humanoid", "Player"
-    )
-
-    val builtinPattern = "\\b(${builtins.joinToString("|")})\\b"
-    Regex(builtinPattern).findAll(text).forEach { match ->
+    builtinsRegex.findAll(text).forEach { match ->
         val start = match.range.first
         val end = (match.range.last + 1).coerceAtMost(length)
         if (start < end && !styled.sliceArray(start until end).any { it }) {
@@ -107,12 +98,7 @@ fun highlightCode(text: String, language: String, theme: CodeTheme): AnnotatedSt
     }
 
     // 5. Types / Type Casts (e.g., number, boolean, string, void, thread, vector)
-    val types = listOf(
-        "number", "boolean", "string", "thread", "table", "any", "void", "unknown", 
-        "never", "ControllerType", "CharacterState", "RaycastInfo"
-    )
-    val typesPattern = "\\b(${types.joinToString("|")})\\b"
-    Regex(typesPattern).findAll(text).forEach { match ->
+    typesRegex.findAll(text).forEach { match ->
         val start = match.range.first
         val end = (match.range.last + 1).coerceAtMost(length)
         if (start < end && !styled.sliceArray(start until end).any { it }) {
@@ -122,7 +108,7 @@ fun highlightCode(text: String, language: String, theme: CodeTheme): AnnotatedSt
     }
 
     // 6. Functions in Luau: identifier before parenthesis
-    Regex("\\b([a-zA-Z_]\\w*)(?=\\s*\\()").findAll(text).forEach { match ->
+    functionRegex.findAll(text).forEach { match ->
         val start = match.range.first
         val end = (match.range.last + 1).coerceAtMost(length)
         if (start < end && !styled.sliceArray(start until end).any { it }) {
@@ -132,7 +118,7 @@ fun highlightCode(text: String, language: String, theme: CodeTheme): AnnotatedSt
     }
 
     // 7. Numbers (all float/decimals, integers)
-    Regex("\\b\\d+(\\.\\d+)?\\b").findAll(text).forEach { match ->
+    numberRegex.findAll(text).forEach { match ->
         val start = match.range.first
         val end = (match.range.last + 1).coerceAtMost(length)
         if (start < end && !styled.sliceArray(start until end).any { it }) {

@@ -25,10 +25,24 @@ import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
 import android.os.Build
 import java.io.File
+import org.json.JSONObject
+import org.json.JSONArray
 
 data class LuauError(val line: Int, val message: String, val severity: String = "ERROR")
 
+data class DevPlugin(
+    val id: String,
+    val name: String,
+    val description: String,
+    val author: String = "External",
+    val version: String = "1.0.0",
+    val enabled: Boolean = false,
+    val code: String = ""
+)
+
 class EditorViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val app = application
 
     private val repository: CodeRepository
     private val _filesFlow = MutableStateFlow<List<CodeFile>>(emptyList())
@@ -116,6 +130,23 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     val externalFilesList = MutableStateFlow<List<CodeFile>>(emptyList())
 
+    // Treehub Bundler configs persist state
+    private val _entryFile = MutableStateFlow("init.luau")
+    val entryFile: StateFlow<String> = _entryFile.asStateFlow()
+
+    private val _outputFile = MutableStateFlow("bundle.lua")
+    val outputFile: StateFlow<String> = _outputFile.asStateFlow()
+
+    // VS Code HTTPS Sync states
+    private val _syncUrl = MutableStateFlow("https://raw.githubusercontent.com/roblox/luau/master/tests/Parsing.test.luau")
+    val syncUrl: StateFlow<String> = _syncUrl.asStateFlow()
+
+    private val _syncStatus = MutableStateFlow("")
+    val syncStatus: StateFlow<String> = _syncStatus.asStateFlow()
+
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
     // VS Code Plugins / Extensions
     private val _enabledPlugins = MutableStateFlow<Map<String, Boolean>>(mapOf(
         "autocomplete" to true,
@@ -133,6 +164,10 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         "[VSCODE API] Host registered successfully. Mobile VS Code QuickEdit theme loaded."
     ))
     val pluginLogs: StateFlow<List<String>> = _pluginLogs.asStateFlow()
+
+    // Developer Custom Plugins State
+    private val _customPlugins = MutableStateFlow<List<DevPlugin>>(emptyList())
+    val customPlugins: StateFlow<List<DevPlugin>> = _customPlugins.asStateFlow()
 
     // Bundler Simulation
     private val _isBundling = MutableStateFlow(false)
@@ -185,6 +220,58 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         val database = AppDatabase.getDatabase(application)
         repository = CodeRepository(database.codeFileDao())
 
+        // Load persisted settings
+        val prefs = application.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+        _fontSize.value = prefs.getFloat("fontSize", 14f)
+        _wordWrap.value = prefs.getBoolean("wordWrap", true)
+        _autoSave.value = prefs.getBoolean("autoSave", false)
+        _showMinimap.value = prefs.getBoolean("showMinimap", true)
+        _showLineNumbers.value = prefs.getBoolean("showLineNumbers", true)
+        _isBetaInterface.value = prefs.getBoolean("isBetaInterface", true)
+        _useTreehubBundler.value = prefs.getBoolean("useTreehubBundler", true)
+        _fontFamily.value = prefs.getString("fontFamily", "Space Grotesk") ?: "Space Grotesk"
+        _cursorStyle.value = prefs.getString("cursorStyle", "Block") ?: "Block"
+        _luauTypecheck.value = prefs.getBoolean("luauTypecheck", true)
+        _luauOptimization.value = prefs.getBoolean("luauOptimization", true)
+        _cursorBlinking.value = prefs.getString("cursorBlinking", "Smooth") ?: "Smooth"
+        _tabSize.value = prefs.getInt("tabSize", 4)
+        _useExternalStorage.value = prefs.getBoolean("useExternalStorage", false)
+        _orientationMode.value = prefs.getInt("orientationMode", 0)
+        _customBackgroundUri.value = prefs.getString("customBackgroundUri", null)
+        
+        // Load bundle config
+        _entryFile.value = prefs.getString("entryFile", "init.luau") ?: "init.luau"
+        _outputFile.value = prefs.getString("outputFile", "bundle.lua") ?: "bundle.lua"
+
+        // Load sync URL
+        _syncUrl.value = prefs.getString("syncUrl", "https://raw.githubusercontent.com/roblox/luau/master/tests/Parsing.test.luau") ?: "https://raw.githubusercontent.com/roblox/luau/master/tests/Parsing.test.luau"
+
+        // Load theme
+        val themeId = prefs.getString("themeId", "elegant_dark") ?: "elegant_dark"
+        _activeTheme.value = CodeTheme.themes.find { it.id == themeId } ?: CodeTheme.ElegantDark
+
+        // Load custom plugins
+        val customPluginsJson = prefs.getString("custom_plugins_json", "[]") ?: "[]"
+        try {
+            val list = mutableListOf<DevPlugin>()
+            val array = org.json.JSONArray(customPluginsJson)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                list.add(DevPlugin(
+                    id = obj.getString("id"),
+                    name = obj.getString("name"),
+                    description = obj.getString("description"),
+                    author = obj.optString("author", "External"),
+                    version = obj.optString("version", "1.0.0"),
+                    enabled = obj.optBoolean("enabled", false),
+                    code = obj.optString("code", "")
+                ))
+            }
+            _customPlugins.value = list
+        } catch (e: Exception) {
+            _pluginLogs.value = _pluginLogs.value + "[ERROR] Failed to load custom plugins config: ${e.localizedMessage}"
+        }
+
         viewModelScope.launch {
             // Pre-seed Luau templates
             repository.initializeDefaultFilesIfEmpty()
@@ -215,14 +302,21 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setTheme(theme: CodeTheme) {
         _activeTheme.value = theme
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putString("themeId", theme.id).apply()
     }
 
     fun setFontSize(size: Float) {
-        _fontSize.value = size.coerceIn(10f, 26f)
+        val coerced = size.coerceIn(10f, 26f)
+        _fontSize.value = coerced
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putFloat("fontSize", coerced).apply()
     }
 
     fun setWordWrap(wrap: Boolean) {
         _wordWrap.value = wrap
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean("wordWrap", wrap).apply()
     }
 
     fun setSearchQuery(query: String) {
@@ -233,21 +327,158 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         _replaceQuery.value = query
     }
 
-    fun setBetaInterface(enabled: Boolean) { _isBetaInterface.value = enabled }
-    fun setUseTreehubBundler(enabled: Boolean) { _useTreehubBundler.value = enabled }
+    fun setBetaInterface(enabled: Boolean) { 
+        _isBetaInterface.value = enabled 
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean("isBetaInterface", enabled).apply()
+    }
+    
+    fun setUseTreehubBundler(enabled: Boolean) { 
+        _useTreehubBundler.value = enabled 
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean("useTreehubBundler", enabled).apply()
+    }
+
+    // Bundler Config Setters
+    fun setEntryFile(value: String) {
+        _entryFile.value = value
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putString("entryFile", value).apply()
+    }
+
+    fun setOutputFile(value: String) {
+        _outputFile.value = value
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putString("outputFile", value).apply()
+    }
+
+    // HTTPS Sync Methods
+    fun setSyncUrl(url: String) {
+        _syncUrl.value = url
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putString("syncUrl", url).apply()
+    }
+
+    fun syncFromUrl(targetFileName: String, insertIntoActive: Boolean) {
+        val url = _syncUrl.value
+        if (url.isBlank()) {
+            _syncStatus.value = "URL cannot be empty."
+            return
+        }
+        viewModelScope.launch {
+            _isSyncing.value = true
+            _syncStatus.value = "Connecting to source..."
+            try {
+                val fetchedCode = withContext(Dispatchers.IO) {
+                    val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 8000
+                    conn.readTimeout = 8000
+                    conn.requestMethod = "GET"
+                    conn.setRequestProperty("User-Agent", "LuauMobileEditor/1.0")
+                    if (conn.responseCode != 200) {
+                        throw Exception("HTTP Error: ${conn.responseCode} ${conn.responseMessage}")
+                    }
+                    conn.inputStream.bufferedReader().use { it.readText() }
+                }
+                
+                if (fetchedCode.length > 1_000_000) {
+                    throw java.io.IOException("Remote source too large (max 1MB).")
+                }
+
+                if (insertIntoActive && _activeFileId.value != null) {
+                    updateActiveText(TextFieldValue(fetchedCode))
+                    _syncStatus.value = "Success: Injected script into current editor!"
+                    addPluginLog("[VSCODE SYNC] Successfully imported code from web to active tab.")
+                } else {
+                    val cleanedName = targetFileName.trim()
+                    val fileNameToUse = if (cleanedName.endsWith(".luau") || cleanedName.endsWith(".lua")) {
+                        cleanedName
+                    } else {
+                        if (cleanedName.isNotEmpty()) "$cleanedName.luau" else "imported_script.luau"
+                    }
+                    createNewFile(fileNameToUse, "luau", "Blank")
+                    // Delay slightly to await file database creation and focus open file
+                    kotlinx.coroutines.delay(350)
+                    updateActiveText(TextFieldValue(fetchedCode))
+                    _syncStatus.value = "Success: Created $fileNameToUse with imported code!"
+                    addPluginLog("[VSCODE SYNC] Created new file: $fileNameToUse and synced.")
+                }
+            } catch (e: Exception) {
+                _syncStatus.value = "Error: ${e.localizedMessage ?: "Unknown connection failure"}"
+                addPluginLog("[VSCODE SYNC] Sync error: ${e.localizedMessage}")
+            } finally {
+                _isSyncing.value = false
+            }
+        }
+    }
 
     // Settings actions
-    fun setAutoSave(value: Boolean) { _autoSave.value = value }
-    fun setShowMinimap(value: Boolean) { _showMinimap.value = value }
-    fun setCustomBackgroundUri(value: String?) { _customBackgroundUri.value = value }
-    fun setOrientationMode(value: Int) { _orientationMode.value = value }
-    fun setShowLineNumbers(value: Boolean) { _showLineNumbers.value = value }
-    fun setFontFamily(value: String) { _fontFamily.value = value }
-    fun setCursorStyle(value: String) { _cursorStyle.value = value }
-    fun setLuauTypecheck(value: Boolean) { _luauTypecheck.value = value }
-    fun setLuauOptimization(value: Boolean) { _luauOptimization.value = value }
-    fun setCursorBlinking(value: String) { _cursorBlinking.value = value }
-    fun setTabSize(value: Int) { _tabSize.value = value }
+    fun setAutoSave(value: Boolean) { 
+        _autoSave.value = value 
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean("autoSave", value).apply()
+    }
+    
+    fun setShowMinimap(value: Boolean) { 
+        _showMinimap.value = value 
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean("showMinimap", value).apply()
+    }
+    
+    fun setCustomBackgroundUri(value: String?) { 
+        _customBackgroundUri.value = value 
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putString("customBackgroundUri", value).apply()
+    }
+    
+    fun setOrientationMode(value: Int) { 
+        _orientationMode.value = value 
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putInt("orientationMode", value).apply()
+    }
+    
+    fun setShowLineNumbers(value: Boolean) { 
+        _showLineNumbers.value = value 
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean("showLineNumbers", value).apply()
+    }
+    
+    fun setFontFamily(value: String) { 
+        _fontFamily.value = value 
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putString("fontFamily", value).apply()
+    }
+    
+    fun setCursorStyle(value: String) { 
+        _cursorStyle.value = value 
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putString("cursorStyle", value).apply()
+    }
+    
+    fun setLuauTypecheck(value: Boolean) { 
+        _luauTypecheck.value = value 
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean("luauTypecheck", value).apply()
+    }
+    
+    fun setLuauOptimization(value: Boolean) { 
+        _luauOptimization.value = value 
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean("luauOptimization", value).apply()
+    }
+    
+    fun setCursorBlinking(value: String) { 
+        _cursorBlinking.value = value 
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putString("cursorBlinking", value).apply()
+    }
+    
+    fun setTabSize(value: Int) { 
+        _tabSize.value = value 
+        app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+            .edit().putInt("tabSize", value).apply()
+    }
+    
     fun setSettingsOpen(open: Boolean) { _isSettingsOpen.value = open }
     fun setSettingsActive(active: Boolean) {
         _isSettingsActive.value = active
@@ -854,6 +1085,111 @@ print("Active Player Speed standard set: " .. tostring(speed))
         }
         list.add(message)
         _pluginLogs.value = list
+    }
+
+    // --- DEVELOPER CUSTOM PLUGINS METHODS ---
+    fun setCustomPluginEnabled(pluginId: String, enabled: Boolean) {
+        val list = _customPlugins.value.map {
+            if (it.id == pluginId) it.copy(enabled = enabled) else it
+        }
+        _customPlugins.value = list
+        saveCustomPlugins(list)
+        val target = list.find { it.id == pluginId }
+        if (target != null) {
+            addPluginLog("[DEV PLUGIN] '${target.name}' is now ${if (enabled) "ENABLED" else "DISABLED"}.")
+            if (enabled && target.code.isNotEmpty()) {
+                addPluginLog("[VM EXEC] Running custom plugin initial hook logic...")
+                addPluginLog("[STDOUT] (${target.id}): Custom plugin initialization code running.")
+            }
+        }
+    }
+
+    fun removeCustomPlugin(pluginId: String) {
+        val list = _customPlugins.value.filterNot { it.id == pluginId }
+        _customPlugins.value = list
+        saveCustomPlugins(list)
+        addPluginLog("[DEV PLUGIN] Uninstalled plugin with ID: $pluginId")
+    }
+
+    private fun saveCustomPlugins(list: List<DevPlugin>) {
+        try {
+            val array = JSONArray()
+            for (plugin in list) {
+                val obj = JSONObject()
+                obj.put("id", plugin.id)
+                obj.put("name", plugin.name)
+                obj.put("description", plugin.description)
+                obj.put("author", plugin.author)
+                obj.put("version", plugin.version)
+                obj.put("enabled", plugin.enabled)
+                obj.put("code", plugin.code)
+                array.put(obj)
+            }
+            app.getSharedPreferences("luau_editor_settings", android.content.Context.MODE_PRIVATE)
+                .edit().putString("custom_plugins_json", array.toString()).apply()
+        } catch (e: Exception) {
+            addPluginLog("[ERROR] Failed to save custom plugins: ${e.localizedMessage}")
+        }
+    }
+
+    fun importPluginJson(jsonString: String): Boolean {
+        return try {
+            val obj = JSONObject(jsonString)
+            val id = obj.getString("id").trim().replace(" ", "_")
+            val name = obj.getString("name")
+            val description = obj.getString("description")
+            val author = obj.optString("author", "External")
+            val version = obj.optString("version", "1.0.0")
+            val code = obj.optString("code", "")
+            
+            if (id.isEmpty() || name.isEmpty()) {
+                throw Exception("ID and Name fields are required.")
+            }
+
+            val list = _customPlugins.value.toMutableList()
+            val idx = list.indexOfFirst { it.id == id }
+            val newPlugin = DevPlugin(
+                id = id,
+                name = name,
+                description = description,
+                author = author,
+                version = version,
+                enabled = true,
+                code = code
+            )
+            if (idx != -1) {
+                list[idx] = newPlugin
+                addPluginLog("[DEVELOPER SDK] Updated existing custom plugin: $name.")
+            } else {
+                list.add(newPlugin)
+                addPluginLog("[DEVELOPER SDK] Loaded and activated new plugin: $name [v$version].")
+            }
+            _customPlugins.value = list
+            saveCustomPlugins(list)
+            true
+        } catch (e: Exception) {
+            addPluginLog("[DEVELOPER SDK ERROR] Import failed: ${e.localizedMessage}")
+            false
+        }
+    }
+
+    fun scanWorkspaceForPluginsDev() {
+        val workspaceFiles = _filesFlow.value
+        val pluginsDevFiles = workspaceFiles.filter { it.name.endsWith(".pluginsdev") }
+        if (pluginsDevFiles.isEmpty()) {
+            addPluginLog("[DEVELOPER SDK] No workspace files ending in '.pluginsdev' found.")
+            return
+        }
+        var successCount = 0
+        for (file in pluginsDevFiles) {
+            try {
+                val ok = importPluginJson(file.content)
+                if (ok) successCount++
+            } catch (e: Exception) {
+                addPluginLog("[DEVELOPER SDK ERROR] Failed to parse file ${file.name}: ${e.localizedMessage}")
+            }
+        }
+        addPluginLog("[DEVELOPER SDK] Rescan complete: found and updated $successCount plugins.")
     }
 
     // Darklua bundler compiler task

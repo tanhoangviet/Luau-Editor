@@ -364,6 +364,7 @@ fun EditorScreen(
                                         activeTheme = activeTheme
                                     )
                                     "plugins" -> PluginsTabContent(
+                                        viewModel = viewModel,
                                         activeTheme = activeTheme
                                     )
                                 }
@@ -597,8 +598,9 @@ fun EditorScreen(
                         } else if (activeFile != null) {
                             // TEXT EDITOR LAYOUT
                             var textFieldValue by viewModel.activeTextFieldValue
-                            var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
-                            val customHighlight = CodeSyntaxHighlightTransformation(activeFile.language, activeTheme)
+                            val customHighlight = remember(activeFile.language, activeTheme) {
+                                CodeSyntaxHighlightTransformation(activeFile.language, activeTheme)
+                            }
 
                             val editorScrollState = rememberScrollState()
                             val editorModifier = if (wordWrap) {
@@ -614,7 +616,6 @@ fun EditorScreen(
                                         value = textFieldValue,
                                         onValueChange = { viewModel.updateActiveText(it) },
                                         modifier = Modifier.fillMaxWidth().heightIn(min = 400.dp),
-                                        onTextLayout = { textLayoutResult = it },
                                         textStyle = TextStyle(
                                             fontFamily = when (fontFamilySelection) {
                                                 "JetBrains Mono" -> FontFamily.Monospace
@@ -633,40 +634,11 @@ fun EditorScreen(
                                             Row(modifier = Modifier.fillMaxWidth()) {
                                                 // 1. Line numbers column
                                                 if (showLineNumbers) {
-                                                    val layout = textLayoutResult
-                                                    val visualLineInfos = remember(layout, textFieldValue.text) {
-                                                        val list = mutableListOf<String>()
-                                                        if (layout != null) {
-                                                            val text = layout.layoutInput.text
-                                                            var lastParagraph = -1
-                                                            var paragraphIndex = 0
-                                                            var charIndex = 0
-                                                            val lineCount = layout.lineCount
-                                                            for (i in 0 until lineCount) {
-                                                                val startOffset = try {
-                                                                    layout.getLineStart(i)
-                                                                } catch (e: Exception) {
-                                                                    0
-                                                                }
-                                                                // Advance paragraph index up to startOffset of the current visual line
-                                                                while (charIndex < startOffset && charIndex < text.length) {
-                                                                    if (text[charIndex] == '\n') {
-                                                                        paragraphIndex++
-                                                                    }
-                                                                    charIndex++
-                                                                }
-                                                                if (paragraphIndex != lastParagraph) {
-                                                                    list.add((paragraphIndex + 1).toString())
-                                                                    lastParagraph = paragraphIndex
-                                                                } else {
-                                                                    list.add("") // empty line indicator for wrapped lines
-                                                                }
-                                                            }
-                                                        } else {
-                                                            val linesCount = textFieldValue.text.lines().size
-                                                            for (i in 1..linesCount) {
-                                                                list.add(i.toString())
-                                                            }
+                                                    val visualLineInfos = remember(textFieldValue.text) {
+                                                        val linesCount = textFieldValue.text.lines().size
+                                                        val list = java.util.ArrayList<String>(linesCount)
+                                                        for (i in 1..linesCount) {
+                                                            list.add(i.toString())
                                                         }
                                                         list
                                                     }
@@ -2091,6 +2063,168 @@ fun SettingsDashboard(
             }
         }
 
+        // VS CODE HTTPS SYNC PIPELINE
+        item {
+            val syncUrl by viewModel.syncUrl.collectAsState()
+            val syncStatus by viewModel.syncStatus.collectAsState()
+            val isSyncing by viewModel.isSyncing.collectAsState()
+            val activeFileId by viewModel.activeFileId.collectAsState()
+            var importTargetName by remember { mutableStateOf("synced_script") }
+            var insertIntoActiveTab by remember { mutableStateOf(activeFileId != null) }
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = activeTheme.sidebarBgColor),
+                border = BorderStroke(1.dp, Color(0xFF2B2B2B)),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(text = "🌐", fontSize = 18.sp)
+                        Text(
+                            text = "VS CODE HTTPS SYNC PIPELINE",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = activeTheme.caretColor
+                            )
+                        )
+                    }
+
+                    Text(
+                        text = "Fetch raw scripts via HTTPS from your local VS Code workspace server (e.g., Live Server) or raw repository content URLs.",
+                        style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = activeTheme.textColor.copy(alpha = 0.5f), lineHeight = 12.sp)
+                    )
+
+                    // URL Input field
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "VS Code HTTPS Server / Script URL",
+                            style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = activeTheme.textColor)
+                        )
+                        BasicTextField(
+                            value = syncUrl,
+                            onValueChange = { viewModel.setSyncUrl(it) },
+                            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = activeTheme.textColor),
+                            cursorBrush = SolidColor(activeTheme.caretColor),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF0F1419), RoundedCornerShape(4.dp))
+                                .border(1.dp, Color(0xFF2B2B2B), RoundedCornerShape(4.dp))
+                                .padding(8.dp),
+                            decorationBox = { innerTextField ->
+                                if (syncUrl.isEmpty()) Text("HTTP/HTTPS Source Address...", color = Color.Gray, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                innerTextField()
+                            }
+                        )
+                    }
+
+                    // Configuration Options
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Apply to current editor tab",
+                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = activeTheme.textColor)
+                            )
+                            Text(
+                                text = if (activeFileId == null) "No active file tab open" else "Loads code straight into open tab.",
+                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = activeTheme.textColor.copy(alpha = 0.5f))
+                            )
+                        }
+                        Switch(
+                            checked = insertIntoActiveTab && activeFileId != null,
+                            enabled = activeFileId != null,
+                            onCheckedChange = { insertIntoActiveTab = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = activeTheme.caretColor,
+                                checkedTrackColor = activeTheme.caretColor.copy(alpha = 0.3f),
+                                uncheckedThumbColor = Color.Gray,
+                                uncheckedTrackColor = Color.DarkGray
+                            )
+                        )
+                    }
+
+                    if (!insertIntoActiveTab || activeFileId == null) {
+                        // New file name configuration
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "Target New File Name",
+                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = activeTheme.textColor)
+                            )
+                            BasicTextField(
+                                value = importTargetName,
+                                onValueChange = { importTargetName = it },
+                                textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = activeTheme.textColor),
+                                cursorBrush = SolidColor(activeTheme.caretColor),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFF0F1419), RoundedCornerShape(4.dp))
+                                    .border(1.dp, Color(0xFF2B2B2B), RoundedCornerShape(4.dp))
+                                    .padding(8.dp),
+                                decorationBox = { innerTextField ->
+                                    if (importTargetName.isEmpty()) Text("imported_script.luau", color = Color.Gray, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                    innerTextField()
+                                }
+                            )
+                        }
+                    }
+
+                    // Sync action button
+                    Button(
+                        onClick = { viewModel.syncFromUrl(importTargetName, insertIntoActiveTab && activeFileId != null) },
+                        enabled = !isSyncing && syncUrl.isNotEmpty(),
+                        colors = ButtonDefaults.buttonColors(containerColor = activeTheme.caretColor),
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.fillMaxWidth().height(36.dp)
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (isSyncing) {
+                                CircularProgressIndicator(color = activeTheme.backgroundColor, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text(text = "☁", fontSize = 16.sp, color = activeTheme.backgroundColor)
+                            }
+                            Text(
+                                text = if (isSyncing) "FETCHING SCRIPT..." else "FETCH & APPLY NOW",
+                                style = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = activeTheme.backgroundColor)
+                            )
+                        }
+                    }
+
+                    // Status output text field
+                    if (syncStatus.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (syncStatus.startsWith("Error")) Color(0x22EF4444) else Color(0x2210B981),
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (syncStatus.startsWith("Error")) Color(0xFFEF4444).copy(alpha = 0.5f) else Color(0xFF10B981).copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(10.dp)
+                        ) {
+                            Text(
+                                text = syncStatus,
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    color = if (syncStatus.startsWith("Error")) Color(0xFFFCA5A5) else Color(0xFFA7F3D0)
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // Safety spacer
         item {
             Spacer(modifier = Modifier.height(20.dp))
@@ -2508,8 +2642,8 @@ fun BundleTabContent(
     val downloadProgress by viewModel.downloadProgress.collectAsState()
     val isDarkluaDownloaded by viewModel.isDarkluaDownloaded.collectAsState()
 
-    var entryFile by remember { mutableStateOf("main.luau") }
-    var outputFile by remember { mutableStateOf("bundle.lua") }
+    val entryFile by viewModel.entryFile.collectAsState()
+    val outputFile by viewModel.outputFile.collectAsState()
 
     Column(
         modifier = Modifier
@@ -2545,7 +2679,7 @@ fun BundleTabContent(
                     Spacer(modifier = Modifier.width(6.dp))
                     BasicTextField(
                         value = entryFile,
-                        onValueChange = { entryFile = it },
+                        onValueChange = { viewModel.setEntryFile(it) },
                         textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = activeTheme.textColor),
                         cursorBrush = SolidColor(activeTheme.caretColor),
                         modifier = Modifier
@@ -2566,7 +2700,7 @@ fun BundleTabContent(
                     Spacer(modifier = Modifier.width(6.dp))
                     BasicTextField(
                         value = outputFile,
-                        onValueChange = { outputFile = it },
+                        onValueChange = { viewModel.setOutputFile(it) },
                         textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = activeTheme.textColor),
                         cursorBrush = SolidColor(activeTheme.caretColor),
                         modifier = Modifier
@@ -3103,8 +3237,17 @@ fun androidx.compose.foundation.layout.BoxScope.DynamicIslandOverlay(
 
 @Composable
 fun PluginsTabContent(
+    viewModel: EditorViewModel,
     activeTheme: CodeTheme
 ) {
+    val enabledPlugins by viewModel.enabledPlugins.collectAsState()
+    val customPlugins by viewModel.customPlugins.collectAsState()
+    val pluginLogs by viewModel.pluginLogs.collectAsState()
+
+    var activeSubTab by remember { mutableStateOf("catalog") } // "catalog" or "docs"
+    var manualJsonText by remember { mutableStateOf("") }
+    var importStatus by remember { mutableStateOf("") }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -3112,24 +3255,372 @@ fun PluginsTabContent(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        PluginCard(
-            title = "Luau Formatter",
-            description = "Auto-format code to comply with Roblox standards.",
-            installed = true,
-            activeTheme = activeTheme
-        )
-        PluginCard(
-            title = "Snippet Helper",
-            description = "Quick autocomplete symbols & snippets.",
-            installed = true,
-            activeTheme = activeTheme
-        )
-        PluginCard(
-            title = "Color Picker",
-            description = "Visual color picker for Color3 and hex codes.",
-            installed = false,
-            activeTheme = activeTheme
-        )
+        // Tab Selector Pills
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = { activeSubTab = "catalog" },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (activeSubTab == "catalog") activeTheme.caretColor else activeTheme.sidebarBgColor,
+                    contentColor = if (activeSubTab == "catalog") activeTheme.backgroundColor else activeTheme.textColor
+                ),
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier.weight(1f).height(32.dp),
+                contentPadding = PaddingValues(0.dp)
+            ) {
+                Text("CATALOG", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold))
+            }
+            
+            Button(
+                onClick = { activeSubTab = "docs" },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (activeSubTab == "docs") activeTheme.caretColor else activeTheme.sidebarBgColor,
+                    contentColor = if (activeSubTab == "docs") activeTheme.backgroundColor else activeTheme.textColor
+                ),
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier.weight(1f).height(32.dp),
+                contentPadding = PaddingValues(0.dp)
+            ) {
+                Text("DEV SDK & IMPORT", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold))
+            }
+        }
+
+        if (activeSubTab == "catalog") {
+            Text(
+                text = "⚡ PLUGINS HỆ THỐNG",
+                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = activeTheme.caretColor.copy(alpha = 0.8f))
+            )
+
+            PluginCard(
+                title = "Roblox Intellisense Pro",
+                description = "Chương trình gợi ý cú pháp, tự động hoàn thành (autocomplete) và kiểm tra định kiểu Luau thời gian thực.",
+                installed = enabledPlugins["autocomplete"] ?: false,
+                activeTheme = activeTheme,
+                onToggle = { viewModel.setPluginEnabled("autocomplete", !(enabledPlugins["autocomplete"] ?: false)) }
+            )
+
+            PluginCard(
+                title = "Auto Bracket Closer",
+                description = "Tự động đóng ngoặc đơn, ngoặc vuông và cặp nháy đơn/kép khi lập trình.",
+                installed = enabledPlugins["bracket"] ?: false,
+                activeTheme = activeTheme,
+                onToggle = { viewModel.setPluginEnabled("bracket", !(enabledPlugins["bracket"] ?: false)) }
+            )
+
+            PluginCard(
+                title = "Vscode Color Selector Integration",
+                description = "Hiển thị và biên dịch chỉnh màu trực quan dạng Color3 và mã Hex trong trình soạn thảo.",
+                installed = enabledPlugins["colorpicker"] ?: false,
+                activeTheme = activeTheme,
+                onToggle = { viewModel.setPluginEnabled("colorpicker", !(enabledPlugins["colorpicker"] ?: false)) }
+            )
+
+            PluginCard(
+                title = "Darklua Bundler Core",
+                description = "Lớp dịch chuyển dự án nén module trung gian Darklua để đóng gói nhiều file trước khi xuất.",
+                installed = enabledPlugins["darklua"] ?: false,
+                activeTheme = activeTheme,
+                onToggle = { viewModel.setPluginEnabled("darklua", !(enabledPlugins["darklua"] ?: false)) }
+            )
+
+            PluginCard(
+                title = "Luau Formatter & Beautifier",
+                description = "Tự động định dạng lại cấu trúc mã nguồn theo chuẩn linter chuẩn mực Roblox.",
+                installed = enabledPlugins["formatter"] ?: false,
+                activeTheme = activeTheme,
+                onToggle = { viewModel.setPluginEnabled("formatter", !(enabledPlugins["formatter"] ?: false)) }
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = "🔌 PLUGINS TỰ PHÁT TRIỂN TIÊN TIẾN",
+                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF10B981))
+            )
+
+            if (customPlugins.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = activeTheme.sidebarBgColor.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, Color(0xFF2B2B2B)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Chưa có plugin tùy chỉnh nào.",
+                            style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = activeTheme.textColor.copy(alpha = 0.6f))
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Hãy chuyển sang tab \"DEV SDK & IMPORT\" dán JSON plugin hoặc nhấn quét Workspace!",
+                            style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 8.sp, color = activeTheme.textColor.copy(alpha = 0.4f)),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                customPlugins.forEach { plugin ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = activeTheme.sidebarBgColor),
+                        border = BorderStroke(1.dp, if (plugin.enabled) Color(0xFF10B981).copy(alpha = 0.5f) else Color(0xFF2B2B2B)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            text = plugin.name,
+                                            style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = activeTheme.textColor),
+                                            maxLines = 1
+                                        )
+                                        Text(
+                                            text = "v${plugin.version}",
+                                            style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 8.sp, color = Color.Gray)
+                                        )
+                                    }
+                                    Text(
+                                        text = "Bởi ${plugin.author} • ID: ${plugin.id}",
+                                        style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 8.sp, color = activeTheme.textColor.copy(alpha = 0.4f)),
+                                        maxLines = 1
+                                    )
+                                }
+                                Switch(
+                                    checked = plugin.enabled,
+                                    onCheckedChange = { viewModel.setCustomPluginEnabled(plugin.id, it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color(0xFF10B981),
+                                        checkedTrackColor = Color(0xFF10B981).copy(alpha = 0.3f),
+                                        uncheckedThumbColor = Color.Gray,
+                                        uncheckedTrackColor = Color.DarkGray
+                                    )
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = plugin.description,
+                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = activeTheme.textColor.copy(alpha = 0.7f))
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Code size: ${plugin.code.length} ký tự",
+                                    style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 8.sp, color = Color.Gray)
+                                )
+                                Text(
+                                    text = "Gỡ cài đặt",
+                                    style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = Color(0xFFEF4444), fontWeight = FontWeight.Bold),
+                                    modifier = Modifier.clickable { viewModel.removeCustomPlugin(plugin.id) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Plugin Logs Console
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1419)),
+                border = BorderStroke(1.dp, Color(0xFF2B2B2B)),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Column(modifier = Modifier.padding(10.dp)) {
+                    Text(
+                        text = "🖥️ LOGS HOẠT ĐỘNG HOÀN THIỆN PLUGINS",
+                        style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = activeTheme.caretColor)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            pluginLogs.takeLast(10).forEach { log ->
+                                Text(
+                                    text = log,
+                                    style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 8.sp, color = if (log.contains("ERROR")) Color(0xFFEF4444) else Color(0xFFE0E0E0))
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // SDK DEVELOPER DOCS & IMPORT SECTION
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = activeTheme.sidebarBgColor),
+                border = BorderStroke(1.dp, Color(0xFF2B2B2B)),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("📚", fontSize = 16.sp)
+                        Text(
+                            text = "TÀI LIỆU PHÁT TRIỂN PLUGINS",
+                            style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = activeTheme.caretColor)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Trình soạn thảo di động Luau hỗ trợ nạp cấu hình và bổ sung tính năng trực quan bằng định dạng '.pluginsdev'.",
+                        style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = activeTheme.textColor.copy(alpha = 0.8f), lineHeight = 13.sp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Cấu trúc tệp tin .pluginsdev chuẩn (JSON):",
+                        style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = activeTheme.textColor)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    
+                    val sampleJson = """{
+  "id": "my_luau_debugger",
+  "name": "Quick Error Watcher",
+  "description": "Quét và đánh giá linter toàn bộ dự án từ vị trí hiện tại.",
+  "author": "LuauDev Việt Nam",
+  "version": "1.0.0",
+  "enabled": true,
+  "code": "-- Khởi động kịch bản linter\nprint('Watcher Activated!')"
+}"""
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF0F1419), RoundedCornerShape(4.dp))
+                            .border(1.dp, Color(0xFF2B2B2B), RoundedCornerShape(4.dp))
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            text = sampleJson,
+                            style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 8.sp, color = Color(0xFFF39C12), lineHeight = 11.sp)
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "💡 Mẹo: Bạn có thể tạo tệp bất kỳ có phần đuôi '.pluginsdev' trong Explorer của ứng dụng này (ví dụ: `rebuilt.pluginsdev`), dán cấu trúc JSON chuẩn lên và click 'QUÉT WORKSPACE' để tự động đồng hóa!",
+                        style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 8.5.sp, color = Color(0xFFA7F3D0), lineHeight = 12.sp)
+                    )
+                }
+            }
+
+            // Input direct integration
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = activeTheme.sidebarBgColor),
+                border = BorderStroke(1.dp, Color(0xFF2B2B2B)),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "📥 NHẬP PLUGIN BẰNG TAY",
+                        style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = activeTheme.textColor)
+                    )
+                    BasicTextField(
+                        value = manualJsonText,
+                        onValueChange = { manualJsonText = it },
+                        textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = activeTheme.textColor),
+                        cursorBrush = SolidColor(activeTheme.caretColor),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp)
+                            .background(Color(0xFF0F1419), RoundedCornerShape(4.dp))
+                            .border(1.dp, Color(0xFF2B2B2B), RoundedCornerShape(4.dp))
+                            .padding(8.dp),
+                        decorationBox = { innerTextField ->
+                            if (manualJsonText.isEmpty()) {
+                                Text(
+                                    "Dán mã JSON plugin đầy đủ vào đây...",
+                                    color = Color.Gray,
+                                    fontSize = 9.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            innerTextField()
+                        }
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val ok = viewModel.importPluginJson(manualJsonText)
+                                if (ok) {
+                                    importStatus = "Nhập thành công! Đã đăng ký tải plugin thành tựu."
+                                    manualJsonText = ""
+                                } else {
+                                    importStatus = "Lỗi: Không khớp JSON, hãy kiểm tra kỹ dấu đóng mở ngoặc."
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = activeTheme.caretColor),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.weight(1f).height(34.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text("IMPORT JSON", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = activeTheme.backgroundColor, fontWeight = FontWeight.Bold))
+                        }
+                        
+                        Button(
+                            onClick = {
+                                viewModel.scanWorkspaceForPluginsDev()
+                                importStatus = "Hoàn tất tìm kiếm & cập nhật .pluginsdev từ bộ nhớ hiện hành!"
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.weight(1f).height(34.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text("QUÉT WORKSPACE", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = activeTheme.backgroundColor, fontWeight = FontWeight.Bold))
+                        }
+                    }
+                    
+                    if (importStatus.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (importStatus.startsWith("Lỗi")) Color(0x22EF4444) else Color(0x2210B981),
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(8.dp)
+                        ) {
+                            Text(
+                                text = importStatus,
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.sp,
+                                    color = if (importStatus.startsWith("Lỗi")) Color(0xFFEF4444) else Color(0xFF10B981)
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -3138,12 +3629,13 @@ fun PluginCard(
     title: String,
     description: String,
     installed: Boolean,
-    activeTheme: CodeTheme
+    activeTheme: CodeTheme,
+    onToggle: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = activeTheme.sidebarBgColor),
-        border = BorderStroke(1.dp, Color(0xFF2B2B2B)),
+        border = BorderStroke(1.dp, if (installed) activeTheme.caretColor.copy(alpha = 0.5f) else Color(0xFF2B2B2B)),
         shape = RoundedCornerShape(8.dp)
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
@@ -3154,33 +3646,24 @@ fun PluginCard(
             ) {
                 Text(
                     text = title,
-                    style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = activeTheme.textColor)
+                    style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = activeTheme.textColor)
                 )
-                if (installed) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = "Installed",
-                        tint = Color(0xFF10B981),
-                        modifier = Modifier.size(14.dp)
+                Switch(
+                    checked = installed,
+                    onCheckedChange = { onToggle() },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = activeTheme.caretColor,
+                        checkedTrackColor = activeTheme.caretColor.copy(alpha = 0.3f),
+                        uncheckedThumbColor = Color.Gray,
+                        uncheckedTrackColor = Color.DarkGray
                     )
-                }
+                )
             }
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = description,
                 style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = activeTheme.textColor.copy(alpha = 0.6f))
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
-            ) {
-                Text(
-                    text = if (installed) "Uninstall" else "Install",
-                    style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = if (installed) Color(0xFFEF4444) else activeTheme.caretColor, fontWeight = FontWeight.Bold),
-                    modifier = Modifier.clickable { /* Toggle state */ }
-                )
-            }
         }
     }
 }

@@ -142,11 +142,22 @@ local Config = {
 return Config
 """
 
+            val devPluginTemplate = """{
+  "id": "theme_customizer",
+  "name": "Custom Theme Injector",
+  "description": "Nạp bảng màu tùy thích cho QuickEdit từ tệp tin cấu hình ngoại vi.",
+  "author": "Lập Trình Viên Roblox",
+  "version": "1.0.0",
+  "enabled": true,
+  "code": "-- Theme customization hook\nprint('Theme Injector Activated.')"
+}"""
+
             // Insert initial files in Luau
             dao.insertFile(CodeFile(name = "init.luau", content = initLuau, language = "luau", isDefault = true))
             dao.insertFile(CodeFile(name = "player_controller.luau", content = playerController, language = "luau", isDefault = true))
             dao.insertFile(CodeFile(name = "raycast_analytics.luau", content = raycastAnalytics, language = "luau", isDefault = true))
             dao.insertFile(CodeFile(name = "config.luau", content = luauConfig, language = "luau", isDefault = true))
+            dao.insertFile(CodeFile(name = "template.pluginsdev", content = devPluginTemplate, language = "json", isDefault = false))
         }
     }
 
